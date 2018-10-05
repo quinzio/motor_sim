@@ -63,7 +63,7 @@ FILE * file1;
 #define PI 3.14159F
 #define TUP 16
 #define TDOWN 12
-#define TSTILL 5
+#define TSTILL 10
 #define EXTENDED_TIME 20
 #define DT 50e-6
 #define FLUX 1e-2
@@ -74,7 +74,7 @@ FILE * file1;
 #define ROMEGAE_MAX (250.0 * 2 * PI)
 #define ROMEGAE_TH1 (60.0 * 2 * PI)
 #define SOMEGAE_MAX (550.0 * 2 * PI)
-#define PMAX 500.0
+#define PMAX 550.0
 #define SOMEGAE_TIMECONST 1.6
 
 int main() {
@@ -134,7 +134,7 @@ int main() {
 		if (t < TUP) {
 			Salphae = ROMEGAE_MAX / TUP;
 		} else if (t > (TUP + TSTILL) && (t < (TUP + TDOWN + TSTILL))) {
-			Salphae = (ROMEGAE_TH1 + 1 - ROMEGAE_MAX) / TDOWN;
+			Salphae = (ROMEGAE_TH1 + 10 - ROMEGAE_MAX) / TDOWN;
 		} else {
 			Salphae = 0;
 		}
