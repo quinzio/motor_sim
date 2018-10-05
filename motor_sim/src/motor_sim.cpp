@@ -33,6 +33,7 @@ struct tod_sampling_t {
 	float interval;
 	float factor;
 	float tod_timeconstant;
+	float outfilter_timeconstant;
 } tod_sampling;
 float t;
 float t_inc;
@@ -72,7 +73,7 @@ FILE * file1;
 #define ROMEGAE_TH1 (60.0 * 2 * PI)
 #define SOMEGAE_MAX (66.0 * 2 * PI)
 #define PMAX 500.0
-#define SOMEGAE_TIMECONST 0.6
+#define SOMEGAE_TIMECONST 1.6
 
 int main() {
 
@@ -81,7 +82,7 @@ int main() {
 	Rthetae = 0;
 	Salphae = 0;
 	Somegae = 0;
-	Sthetae = PI / 2;
+	Sthetae = PI;
 	tod_f = 0;
 	tod = 0;
 	ix = 0;
@@ -94,12 +95,13 @@ int main() {
 	tod_sampling.interval = 1e-3;
 	tod_sampling.factor = 10;
 	tod_sampling.tod_timeconstant = 1;
+	tod_sampling.outfilter_timeconstant = 0.1;
 	gamma.integral = 0;
 	gamma.KI = 400;
 
 	i_min.THRESHOLD = 7;
 	i_min.integral = 0;
-	i_min.KI = 2;
+	i_min.KI = 1;
 
 	indexx = 0;
 
@@ -161,7 +163,7 @@ int main() {
 		Samplie_alt += sqrt(
 				pow(Somegae * L * i, 2) + pow(( R * i + Somegae * FLUX), 2));
 
-		Samplie = 3.1 + Somegae_tod * FLUX + gamma.integral;
+		Samplie = 0.6 + Somegae_tod * FLUX + gamma.integral;
 
 		// Aggiornamento corrente
 		dix = (Samplie * cos(Sthetae) - Romegae * FLUX * cos(Rthetae + PI / 2)
@@ -185,8 +187,13 @@ int main() {
 			tod_sampling.time = t;
 			if (Romegae > ROMEGAE_TH1) {
 				tod_sampling.value = tod * tod_sampling.factor;
+				// con filtro di uscita
+				//tod_sampling.value += (tod * tod_sampling.factor - tod_sampling.value) * t_inc / tod_sampling.outfilter_timeconstant;
 			} else {
 				tod_sampling.value = 0;
+				// this will make a smooth tod kick in
+				tod_f = Sthetae - Rthetae + 2 * PI * gd;
+
 			}
 		}
 
