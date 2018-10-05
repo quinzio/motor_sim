@@ -19,6 +19,7 @@ float Romegae;
 float Rthetae;
 float Salphae;
 float Somegae_prefilter;
+float Somegae_postfilter;
 float Somegae;
 float Somegae_tod;
 float Sthetae;
@@ -114,7 +115,7 @@ int main() {
 	i_min.integral = 0;
 	i_min.KI = 1;
 
-	vbatt = 24;
+	vbatt = 26;
 
 	delta_lim.KI = 100;
 	delta_lim.integral = 0;
@@ -157,9 +158,10 @@ int main() {
 			Somegae_prefilter = SOMEGAE_MAX;
 		}
 		// filtro passa basso su velocita' statore (sigmoide)
-		Somegae += (Somegae_prefilter - Somegae) * t_inc / SOMEGAE_TIMECONST;
+		Somegae_postfilter += (Somegae_prefilter - Somegae_postfilter)
+				* t_inc/ SOMEGAE_TIMECONST;
 		// Correzione delta lim
-		//Somegae -= delta_lim.integral;
+		Somegae = Somegae_postfilter - delta_lim.integral;
 		// Applicazione tod
 		Somegae_tod = Somegae - tod_sampling.value;
 		Sthetae += Somegae_tod * t_inc;
@@ -263,8 +265,9 @@ int main() {
 		delta_lim.delta_max = atan(Somegae * L / R);
 		delta_lim.delta_lim = 2.0 / 3 * delta_lim.delta_max;
 		if (Romegae > ROMEGAE_TH1) {
-			float q = Sthetae - Rthetae - PI / 2 - delta_lim.delta_lim;
-			if (q > 0) {
+			float q = Sthetae - Rthetae + 2 * PI * gd - PI / 2
+					- delta_lim.delta_lim;
+			if (q > 0 || delta_lim.integral > 0) {
 				delta_lim.integral += q * t_inc * delta_lim.KI;
 			}
 		}
