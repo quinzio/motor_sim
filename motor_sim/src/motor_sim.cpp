@@ -59,6 +59,13 @@ struct i_min_st {
 	float KI;
 } i_min;
 float a, b, c, max_triangle; // per clamp tensione
+float vbatt;
+struct delta_lim_st {
+	float delta_max;
+	float delta_lim;
+	float KI;
+	float integral;
+} delta_lim;
 FILE * file1;
 
 #define PI 3.14159F
@@ -77,6 +84,7 @@ FILE * file1;
 #define SOMEGAE_MAX (550.0 * 2 * PI)
 #define PMAX 550.0
 #define SOMEGAE_TIMECONST 1.6
+#define SAMPLIE_OFFSET 0.6
 
 int main() {
 
@@ -85,7 +93,7 @@ int main() {
 	Rthetae = 0;
 	Salphae = 0;
 	Somegae = 0;
-	Sthetae = PI;
+	Sthetae = 0;
 	tod_f = 0;
 	tod = 0;
 	ix = 0;
@@ -106,6 +114,10 @@ int main() {
 	i_min.integral = 0;
 	i_min.KI = 1;
 
+	vbatt = 24;
+
+	delta_lim.KI = 100;
+	delta_lim.integral = 0;
 	indexx = 0;
 
 	file1 = fopen("pippo.txt", "w");
@@ -146,6 +158,8 @@ int main() {
 		}
 		// filtro passa basso su velocita' statore (sigmoide)
 		Somegae += (Somegae_prefilter - Somegae) * t_inc / SOMEGAE_TIMECONST;
+		// Correzione delta lim
+		//Somegae -= delta_lim.integral;
 		// Applicazione tod
 		Somegae_tod = Somegae - tod_sampling.value;
 		Sthetae += Somegae_tod * t_inc;
@@ -168,7 +182,7 @@ int main() {
 		Samplie_alt += sqrt(
 				pow(Somegae * L * i, 2) + pow(( R * i + Somegae * FLUX), 2));
 
-		Samplie = 0.6 + Somegae_tod * FLUX + gamma.integral;
+		Samplie = SAMPLIE_OFFSET + Somegae_tod * FLUX + gamma.integral;
 
 		// Overmodulation clamp (24V battery)
 		a = sin(Sthetae);
@@ -187,8 +201,9 @@ int main() {
 			max_triangle = b - c;
 		if (c - b > max_triangle)
 			max_triangle = c - b;
-		if (max_triangle * Samplie > 24){
-			Samplie = 24 / max_triangle;
+		if (max_triangle * Samplie > vbatt) {
+			Samplie = vbatt / max_triangle;
+			gamma.integral = Samplie - (SAMPLIE_OFFSET + Somegae_tod * FLUX);
 		}
 
 		// Aggiornamento corrente
@@ -244,10 +259,21 @@ int main() {
 		}
 		gamma.iy_last = iy;
 
+		// Delta Angle max value management
+		delta_lim.delta_max = atan(Somegae * L / R);
+		delta_lim.delta_lim = 2.0 / 3 * delta_lim.delta_max;
+		if (Romegae > ROMEGAE_TH1) {
+			float q = Sthetae - Rthetae - PI / 2 - delta_lim.delta_lim;
+			if (q > 0) {
+				delta_lim.integral += q * t_inc * delta_lim.KI;
+			}
+		}
+
 		// Stampa variabili
 		if (indexx++ % 100 == 0) {
 			fprintf(file1,
-					"%.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.5f\t %.2f\t \n",
+					"%.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t "
+							"%.2f\t %.2f\t %.2f\t %.2f\t %.5f\t %.2f\t %.2f\t %.2f\t \n",
 					/*1*/t,
 					/*2*/Samplie,
 					/*3*/Samplie_alt,
@@ -257,12 +283,14 @@ int main() {
 					/*7*/Rthetae,
 					/*8*/Salphae,
 					/*9*/Somegae_tod,
-					/*10*/(Sthetae - Rthetae + 2 * PI * gd),
+					/*10*/(Sthetae - Rthetae + 2 * PI * gd - PI / 2),
 					/*11*/ix,
 					/*12*/iy,
 					/*13*/i,
 					/*14*/tod,
-					/*15*/gamma.gamma);
+					/*15*/delta_lim.delta_lim,
+					/*16*/delta_lim.delta_max,
+					/*17*/delta_lim.integral);
 			//Sleep(50);
 			//fflush(stdout);
 		}
