@@ -61,7 +61,9 @@ struct i_min_st {
 FILE * file1;
 
 #define PI 3.14159F
-#define TTOT 16
+#define TUP 16
+#define TDOWN 12
+#define TSTILL 5
 #define EXTENDED_TIME 20
 #define DT 50e-6
 #define FLUX 1e-2
@@ -71,7 +73,7 @@ FILE * file1;
 #define JE (5.46e-3 / PP / PP)
 #define ROMEGAE_MAX (250.0 * 2 * PI)
 #define ROMEGAE_TH1 (60.0 * 2 * PI)
-#define SOMEGAE_MAX (66.0 * 2 * PI)
+#define SOMEGAE_MAX (550.0 * 2 * PI)
 #define PMAX 500.0
 #define SOMEGAE_TIMECONST 1.6
 
@@ -110,7 +112,7 @@ int main() {
 		return -1;
 	}
 
-	for (t = 0; t < TTOT + EXTENDED_TIME; t += t_inc) {
+	for (t = 0; t < TUP + TSTILL + TDOWN + EXTENDED_TIME; t += t_inc) {
 
 		// Calcolo incremento temporale.
 		// Massimo 1/100 radiante o 10 ms
@@ -129,8 +131,10 @@ int main() {
 		 }
 		 */
 		// Accelerazione statore "lineare"
-		if (t < TTOT) {
-			Salphae = ROMEGAE_MAX / TTOT;
+		if (t < TUP) {
+			Salphae = ROMEGAE_MAX / TUP;
+		} else if (t > (TUP + TSTILL) && (t < (TUP + TDOWN + TSTILL))) {
+			Salphae = (ROMEGAE_TH1 + 1 - ROMEGAE_MAX) / TDOWN;
 		} else {
 			Salphae = 0;
 		}
