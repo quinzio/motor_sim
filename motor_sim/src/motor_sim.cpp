@@ -58,6 +58,7 @@ struct i_min_st {
 	float integral;
 	float KI;
 } i_min;
+float a, b, c, max_triangle; // per clamp tensione
 FILE * file1;
 
 #define PI 3.14159F
@@ -168,6 +169,27 @@ int main() {
 				pow(Somegae * L * i, 2) + pow(( R * i + Somegae * FLUX), 2));
 
 		Samplie = 0.6 + Somegae_tod * FLUX + gamma.integral;
+
+		// Overmodulation clamp (24V battery)
+		a = sin(Sthetae);
+		b = sin(Sthetae + 2.0 / 3 * PI);
+		c = sin(Sthetae - 2.0 / 3 * PI);
+		max_triangle = 0;
+		if (a - b > max_triangle)
+			max_triangle = a - b;
+		if (b - a > max_triangle)
+			max_triangle = b - a;
+		if (a - c > max_triangle)
+			max_triangle = a - c;
+		if (c - a > max_triangle)
+			max_triangle = c - a;
+		if (b - c > max_triangle)
+			max_triangle = b - c;
+		if (c - b > max_triangle)
+			max_triangle = c - b;
+		if (max_triangle * Samplie > 24){
+			Samplie = 24 / max_triangle;
+		}
 
 		// Aggiornamento corrente
 		dix = (Samplie * cos(Sthetae) - Romegae * FLUX * cos(Rthetae + PI / 2)
