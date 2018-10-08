@@ -83,7 +83,10 @@ const float TUP = 16;
 const float TDOWN = 12;
 const float TSTILL = 10;
 const float EXTENDED_TIME = 5;
-const float T_WINDMILL = 20;
+const float T_WINDMILL_UP = 20;
+const float T_WINDMILL_STILL = 5;
+const float T_WINDMILL_DOWN = 20;
+const float T_WINDMILL_AFTER = 20;
 const float DT = 50e-6;
 const float FLUX = 1e-2;
 const float R = 33.8e-3;
@@ -144,7 +147,8 @@ int main() {
     return -1;
   }
 
-  for (t = 0; t < TUP + TSTILL + TDOWN + EXTENDED_TIME + T_WINDMILL;
+  for (t = 0; t < TUP + TSTILL + TDOWN + EXTENDED_TIME + T_WINDMILL_UP +
+                      T_WINDMILL_STILL + T_WINDMILL_DOWN + T_WINDMILL_AFTER;
        t += t_inc) {
     // Calcolo incremento temporale.
     // Massimo 1/100 radiante o 10 ms
@@ -170,8 +174,19 @@ int main() {
     }
 
     // potenza descrescente per simulare windmill
-    if (t > TUP + TDOWN + TSTILL + EXTENDED_TIME) {
+    if (t > TUP + TDOWN + TSTILL + EXTENDED_TIME &&
+        t < TUP + TDOWN + TSTILL + EXTENDED_TIME + T_WINDMILL_UP) {
       pow_windmill += PDEC * t_inc;
+    }
+    if (t > (TUP + TDOWN + TSTILL + EXTENDED_TIME + T_WINDMILL_UP +
+             T_WINDMILL_STILL) &&
+        t < (TUP + TDOWN + TSTILL + EXTENDED_TIME + T_WINDMILL_UP +
+             T_WINDMILL_STILL + T_WINDMILL_DOWN)) {
+      if (pow_windmill > 0) {
+        pow_windmill -= PDEC * t_inc;
+      } else {
+        pow_windmill = 0;
+      }
     }
 
     Somegae_prefilter += Salphae * t_inc;
@@ -238,15 +253,13 @@ int main() {
     i = sqrt(ix * ix + iy * iy);
 
     // Decelerazione dovuta al carico
-    Lalphae = PMAX * pow(Romegae, 2) / pow(ROMEGAE_MAX, 3) /
-              JE;
-    // accelerazione dovuta a windmill
+    Lalphae = PMAX * pow(Romegae, 2) / pow(ROMEGAE_MAX, 3) / JE;
+    // Accelerazione dovuta a windmill
     if (Romegae > 0) {
-    	Walphae = pow_windmill / Romegae / JE;
+      Walphae = pow_windmill / Romegae / JE;
     }
     // Accelerazione dovuta a corrente statorica - decelerazione
-    Ralphae =
-        3 / 2 * FLUX * (cos(Rthetae) * iy - sin(Rthetae) * ix) / JE;
+    Ralphae = 3 / 2 * FLUX * (cos(Rthetae) * iy - sin(Rthetae) * ix) / JE;
 
     Ralphae = Ralphae - Lalphae + Walphae;
 
@@ -280,7 +293,7 @@ int main() {
       gamma.gamma = gamma.delta - gamma.phi;
       // gamma.gamma = -sin(Rthetae + PI / 2);
       if (Romegae > ROMEGAE_TH1) {
-        gamma.integral += gamma.gamma * DT * gamma.KI + i_min.integral;
+        gamma.integral += gamma.gamma * t_inc * gamma.KI + i_min.integral;
       } else {
         gamma.integral = 0;
       }
@@ -310,8 +323,10 @@ int main() {
     if (indexx++ % 100 == 0) {
       fprintf(file1,
               "%.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t "
-              "%.2f\t %.2f\t %.2f\t %.2f\t %.5f\t %.2f\t %.2f\t %.2f\t %.2f\t "
-              "%.2f\t %.2f\t \n",
+              "%.2f\t "
+              "%.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t "
+              "%.2f\t "
+              "%.2f\t %.2f\t %.2f\t \n",
               /*1*/ t,
               /*2*/ Samplie,
               /*3*/ Samplie_alt,
@@ -328,10 +343,13 @@ int main() {
               /*14*/ tod,
               /*15*/ delta_lim.delta_lim,
               /*16*/ delta_lim.delta_max,
-              /*17*/ delta_lim.integral,
+              /*17*/ pow_windmill,
               /*18*/ gamma.phi,
               /*19*/ windmill.out,
-              /*20*/ pow_windmill);
+              /*20*/ delta_lim.integral,
+              /*21*/ gamma.integral,
+              /*22*/ i_min.integral,
+              /*23*/ windmill.out);
       // Sleep(50);
       // fflush(stdout);
     }
