@@ -27,6 +27,7 @@ float Sthetae;
 float Samplie;
 float Samplie_alt;
 float Lalphae;
+float Walphae;
 float tod_f;
 float tod;
 struct tod_sampling_t {
@@ -74,7 +75,7 @@ struct delta_lim_st {
   float KI;
   float integral;
 } delta_lim;
-float pow_max;
+float pow_windmill;
 FILE* file1;
 
 const float PI = 3.14159F;
@@ -93,7 +94,7 @@ const float ROMEGAE_MAX = (250.0 * 2 * PI);
 const float ROMEGAE_TH1 = (60.0 * 2 * PI);
 const float SOMEGAE_MAX = (550.0 * 2 * PI);
 const float PMAX = 550.0;
-const float PDEC = 10.0;
+const float PDEC = 20;
 const float SOMEGAE_TIMECONST = 1.6;
 const float SAMPLIE_OFFSET = 0.61;
 
@@ -134,6 +135,8 @@ int main() {
   windmill.integral = 0;
   windmill.out = 0;
 
+  pow_windmill = 0;
+
   indexx = 0;
 
   file1 = fopen("pippo.txt", "w");
@@ -141,7 +144,8 @@ int main() {
     return -1;
   }
 
-  for (t = 0; t < TUP + TSTILL + TDOWN + EXTENDED_TIME +T_WINDMILL; t += t_inc) {
+  for (t = 0; t < TUP + TSTILL + TDOWN + EXTENDED_TIME + T_WINDMILL;
+       t += t_inc) {
     // Calcolo incremento temporale.
     // Massimo 1/100 radiante o 10 ms
     if (Somegae != 0) t_inc = 1 / Somegae / 100;
@@ -166,11 +170,8 @@ int main() {
     }
 
     // potenza descrescente per simulare windmill
-    if (t < TUP + TDOWN + TSTILL + EXTENDED_TIME) {
-    	pow_max = PMAX;
-    }
-    else {
-    	pow_max = PMAX - (t - TUP + TDOWN + TSTILL + EXTENDED_TIME) * PDEC;
+    if (t > TUP + TDOWN + TSTILL + EXTENDED_TIME) {
+      pow_windmill += PDEC * t_inc;
     }
 
     Somegae_prefilter += Salphae * t_inc;
@@ -237,10 +238,17 @@ int main() {
     i = sqrt(ix * ix + iy * iy);
 
     // Decelerazione dovuta al carico
-    Lalphae = pow_max * pow(Romegae, 2) / pow(ROMEGAE_MAX, 3) / JE;
+    Lalphae = PMAX * pow(Romegae, 2) / pow(ROMEGAE_MAX, 3) /
+              JE;
+    // accelerazione dovuta a windmill
+    if (Romegae > 0) {
+    	Walphae = pow_windmill / Romegae / JE;
+    }
     // Accelerazione dovuta a corrente statorica - decelerazione
     Ralphae =
-        3 / 2 * FLUX * (cos(Rthetae) * iy - sin(Rthetae) * ix) / JE - Lalphae;
+        3 / 2 * FLUX * (cos(Rthetae) * iy - sin(Rthetae) * ix) / JE;
+
+    Ralphae = Ralphae - Lalphae + Walphae;
 
     // TOD
     tod = (Sthetae - Rthetae + 2 * PI * gd) - tod_f;
@@ -303,7 +311,7 @@ int main() {
       fprintf(file1,
               "%.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t "
               "%.2f\t %.2f\t %.2f\t %.2f\t %.5f\t %.2f\t %.2f\t %.2f\t %.2f\t "
-              "%.2f\t \n",
+              "%.2f\t %.2f\t \n",
               /*1*/ t,
               /*2*/ Samplie,
               /*3*/ Samplie_alt,
@@ -322,8 +330,8 @@ int main() {
               /*16*/ delta_lim.delta_max,
               /*17*/ delta_lim.integral,
               /*18*/ gamma.phi,
-              /*19*/ windmill.out
-			  );
+              /*19*/ windmill.out,
+              /*20*/ pow_windmill);
       // Sleep(50);
       // fflush(stdout);
     }
