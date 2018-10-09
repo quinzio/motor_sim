@@ -23,6 +23,7 @@ float Somegae_postfilter;
 float Somegae;
 float Somegae_windmill;
 float Somegae_tod;
+float Somegae_deltalim;
 float Sthetae;
 float Samplie;
 float Samplie_alt;
@@ -41,7 +42,8 @@ struct tod_sampling_t {
 float t;
 float t_inc;
 int indexx;
-int gd;
+int gve;
+int gvi;
 float ix;
 float iy;
 struct gamma_t {
@@ -97,7 +99,7 @@ const float ROMEGAE_MAX = (250.0 * 2 * PI);
 const float ROMEGAE_TH1 = (60.0 * 2 * PI);
 const float SOMEGAE_MAX = (550.0 * 2 * PI);
 const float PMAX = 550.0;
-const float PDEC = 20;
+const float PDEC = 300.0;
 const float SOMEGAE_TIMECONST = 1.6;
 const float SAMPLIE_OFFSET = 0.61;
 
@@ -114,7 +116,8 @@ int main() {
   iy = 0;
   gamma.iy_last = 0;
   t_inc = 1 / Somegae / 100;
-  gd = 0;
+  gve = 0;
+  gvi = 0;
   tod_sampling.time = 0;
   tod_sampling.value = 0;
   tod_sampling.interval = 1e-3;
@@ -128,9 +131,9 @@ int main() {
   i_min.integral = 0;
   i_min.KI = 1;
 
-  vbatt = 26;
+  vbatt = 24.0;
 
-  delta_lim.KI = 100;
+  delta_lim.KI = 1000;
   delta_lim.integral = 0;
 
   windmill.KI = 200;
@@ -155,6 +158,17 @@ int main() {
     if (Somegae != 0) t_inc = 1 / Somegae / 100;
     if (t_inc > 0.01) t_inc = 0.01;
 
+    // Break simulation if control is broken.
+    // Sync is lost
+    float q1 = Sthetae - Rthetae + 2 * PI * gve - PI / 2;
+    if (q1 > 2 * PI || q1 < -2 * PI) {
+      break;
+    }
+    // Control is windmilling and voltage is at max
+    if (Samplie * sqrt(3) > vbatt  * 700.0 / 512) {
+      break;
+    }
+
     // Eq. alle differenze moto rotore e statore
     // Accelerazione statore "quadratica"
     /*
@@ -167,7 +181,7 @@ int main() {
     // Accelerazione statore "lineare"
     if (t < TUP) {
       Salphae = ROMEGAE_MAX / TUP;
-    } else if (t > (TUP + TSTILL) && (t < (TUP + TDOWN + TSTILL))) {
+    } else if (t > (TUP + TSTILL) && (t < (TUP + TSTILL + TDOWN))) {
       Salphae = (ROMEGAE_TH1 + 10 - ROMEGAE_MAX) / TDOWN;
     } else {
       Salphae = 0;
@@ -176,14 +190,14 @@ int main() {
     // potenza descrescente per simulare windmill
     if (t > TUP + TDOWN + TSTILL + EXTENDED_TIME &&
         t < TUP + TDOWN + TSTILL + EXTENDED_TIME + T_WINDMILL_UP) {
-      pow_windmill += PDEC * t_inc;
+      pow_windmill += (PDEC / T_WINDMILL_UP) * t_inc;
     }
     if (t > (TUP + TDOWN + TSTILL + EXTENDED_TIME + T_WINDMILL_UP +
              T_WINDMILL_STILL) &&
         t < (TUP + TDOWN + TSTILL + EXTENDED_TIME + T_WINDMILL_UP +
              T_WINDMILL_STILL + T_WINDMILL_DOWN)) {
       if (pow_windmill > 0) {
-        pow_windmill -= PDEC * t_inc;
+        pow_windmill -= (PDEC / T_WINDMILL_DOWN) * t_inc;
       } else {
         pow_windmill = 0;
       }
@@ -197,13 +211,13 @@ int main() {
     // filtro passa basso su velocita' statore (sigmoide)
     Somegae_postfilter +=
         (Somegae_prefilter - Somegae_postfilter) * t_inc / SOMEGAE_TIMECONST;
-    // Correzione delta lim
-    Somegae = Somegae_postfilter - delta_lim.integral;
-    // Applicazione tod
-    Somegae_tod = Somegae - tod_sampling.value;
     // Applicazione windmill
-    Somegae_windmill = Somegae_tod + windmill.out;
-    Sthetae += Somegae_windmill * t_inc;
+    Somegae = Somegae_postfilter + windmill.out;
+    // Correzione delta lim
+    Somegae_deltalim = Somegae - delta_lim.integral;
+    // Applicazione tod
+    Somegae_tod = Somegae_deltalim - tod_sampling.value;
+    Sthetae += Somegae_tod * t_inc;
     // Rotore
     Romegae += Ralphae * t_inc;
     Rthetae += Romegae * t_inc;
@@ -211,11 +225,12 @@ int main() {
     // Troncamento angoli e calcolo di overflow
     if (Sthetae > 2 * PI) {
       Sthetae -= 2 * PI;
-      gd++;
+      gve++;
+      gvi++;
     }
     if (Rthetae > 2 * PI) {
       Rthetae -= 2 * PI;
-      gd--;
+      gve--;
     }
 
     // Ampiezza tensione statorica
@@ -223,7 +238,7 @@ int main() {
     Samplie_alt +=
         sqrt(pow(Somegae * L * i, 2) + pow((R * i + Somegae * FLUX), 2));
 
-    Samplie = SAMPLIE_OFFSET + Somegae_tod * FLUX + gamma.integral;
+    Samplie = SAMPLIE_OFFSET + Somegae * FLUX + gamma.integral;
 
     // Overmodulation clamp (24V battery)
     a = sin(Sthetae);
@@ -258,25 +273,22 @@ int main() {
     if (Romegae > 0) {
       Walphae = pow_windmill / Romegae / JE;
     }
-    // Accelerazione dovuta a corrente statorica - decelerazione
+    // Accelerazione dovuta a corrente statorica
     Ralphae = 3 / 2 * FLUX * (cos(Rthetae) * iy - sin(Rthetae) * ix) / JE;
 
     Ralphae = Ralphae - Lalphae + Walphae;
 
     // TOD
-    tod = (Sthetae - Rthetae + 2 * PI * gd) - tod_f;
+    tod = (Sthetae - Rthetae + 2 * PI * gve) - tod_f;
     tod_f += tod * t_inc / tod_sampling.tod_timeconstant;
     if (t - tod_sampling.time > tod_sampling.interval) {
       tod_sampling.time = t;
       if (Romegae > ROMEGAE_TH1) {
         tod_sampling.value = tod * tod_sampling.factor;
-        // con filtro di uscita
-        // tod_sampling.value += (tod * tod_sampling.factor -
-        // tod_sampling.value) * t_inc / tod_sampling.outfilter_timeconstant;
       } else {
         tod_sampling.value = 0;
         // this will make a smooth tod kick in
-        tod_f = Sthetae - Rthetae + 2 * PI * gd;
+        tod_f = Sthetae - Rthetae + 2 * PI * gve;
       }
     }
 
@@ -287,8 +299,9 @@ int main() {
 
     // gamma
     // detect zero cross
-    if (iy >= 0 && gamma.iy_last <= 0) {
-      gamma.phi = Sthetae;
+    if (iy >= 0 && gamma.iy_last < 0) {
+      gvi--;  // overflow v-i difference
+      gamma.phi = Sthetae + 2 * PI * gvi;
       gamma.delta = Somegae * L * i / Samplie;
       gamma.gamma = gamma.delta - gamma.phi;
       // gamma.gamma = -sin(Rthetae + PI / 2);
@@ -304,7 +317,7 @@ int main() {
     delta_lim.delta_max = atan(Somegae * L / R);
     delta_lim.delta_lim = 2.0 / 3 * delta_lim.delta_max;
     if (Romegae > ROMEGAE_TH1) {
-      float q = Sthetae - Rthetae + 2 * PI * gd - PI / 2 - delta_lim.delta_lim;
+      float q = Sthetae - Rthetae + 2 * PI * gve - PI / 2 - delta_lim.delta_lim;
       if (q > 0 || delta_lim.integral > 0) {
         delta_lim.integral += q * t_inc * delta_lim.KI;
       }
@@ -326,17 +339,17 @@ int main() {
               "%.2f\t "
               "%.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t "
               "%.2f\t "
-              "%.2f\t %.2f\t %.2f\t \n",
-              /*1*/ t,
-              /*2*/ Samplie,
-              /*3*/ Samplie_alt,
-              /*4*/ Lalphae,
-              /*5*/ Ralphae,
-              /*6*/ Romegae,
-              /*7*/ Rthetae,
-              /*8*/ Salphae,
-              /*9*/ Somegae_tod,
-              /*10*/ (Sthetae - Rthetae + 2 * PI * gd - PI / 2),
+              "%.2f\t %.2f\t %.2f\t %d\t \n",
+              /*01*/ t,
+              /*02*/ Samplie,
+              /*03*/ Samplie_alt,
+              /*04*/ Lalphae,
+              /*05*/ Ralphae,
+              /*06*/ Romegae,
+              /*07*/ Rthetae,
+              /*08*/ Salphae,
+              /*09*/ Somegae_tod,
+              /*10*/ (Sthetae - Rthetae + 2 * PI * gve - PI / 2),
               /*11*/ ix,
               /*12*/ iy,
               /*13*/ i,
@@ -349,7 +362,8 @@ int main() {
               /*20*/ delta_lim.integral,
               /*21*/ gamma.integral,
               /*22*/ i_min.integral,
-              /*23*/ windmill.out);
+              /*23*/ windmill.out,
+              /*24*/ gvi);
       // Sleep(50);
       // fflush(stdout);
     }
