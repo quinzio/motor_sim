@@ -26,6 +26,7 @@ float Somegae_tod;
 float Somegae_deltalim;
 float Sthetae;
 float Samplie;
+float Samplie_clamped;
 float Samplie_alt;
 float Lalphae;
 float Walphae;
@@ -65,6 +66,7 @@ struct i_min_st {
 } i_min;
 struct windmill_st {
   float integral;
+  float proportional;
   float out;
   float KI;
   float KP;
@@ -84,7 +86,7 @@ const float PI = 3.14159F;
 const float TUP = 16;
 const float TDOWN = 12;
 const float TSTILL = 10;
-const float EXTENDED_TIME = 5;
+const float EXTENDED_TIME = 15;
 const float T_WINDMILL_UP = 20;
 const float T_WINDMILL_STILL = 5;
 const float T_WINDMILL_DOWN = 20;
@@ -99,9 +101,11 @@ const float ROMEGAE_MAX = (250.0 * 2 * PI);
 const float ROMEGAE_TH1 = (60.0 * 2 * PI);
 const float SOMEGAE_MAX = (550.0 * 2 * PI);
 const float PMAX = 550.0;
-const float PDEC = 300.0;
+const float PDEC = 200.0;
 const float SOMEGAE_TIMECONST = 1.6;
 const float SAMPLIE_OFFSET = 0.61;
+
+#define DEGREE_TO_RADIANS(x) (x / 180.0 * PI)
 
 int main() {
   Ralphae = 0;
@@ -133,10 +137,10 @@ int main() {
 
   vbatt = 24.0;
 
-  delta_lim.KI = 1000;
+  delta_lim.KI = 4000;
   delta_lim.integral = 0;
 
-  windmill.KI = 200;
+  windmill.KI = 500;
   windmill.KP = 10;
   windmill.integral = 0;
   windmill.out = 0;
@@ -165,8 +169,10 @@ int main() {
       break;
     }
     // Control is windmilling and voltage is at max
-    if (Samplie * sqrt(3) > vbatt  * 700.0 / 512) {
-      break;
+    if (gamma.phi > DEGREE_TO_RADIANS(75.0)) {
+      if (Samplie * sqrt(3) > vbatt * 700.0 / 512) {
+        break;
+      }
     }
 
     // Eq. alle differenze moto rotore e statore
@@ -252,16 +258,18 @@ int main() {
     if (b - c > max_triangle) max_triangle = b - c;
     if (c - b > max_triangle) max_triangle = c - b;
     if (max_triangle * Samplie > vbatt) {
-      Samplie = vbatt / max_triangle;
-      gamma.integral = Samplie - (SAMPLIE_OFFSET + Somegae_tod * FLUX);
+      Samplie_clamped = vbatt / max_triangle;
+      // gamma.integral = Samplie - (SAMPLIE_OFFSET + Somegae_tod * FLUX);
+    } else {
+      Samplie_clamped = Samplie;
     }
 
     // Aggiornamento corrente
-    dix = (Samplie * cos(Sthetae) - Romegae * FLUX * cos(Rthetae + PI / 2) -
-           R * ix) /
+    dix = (Samplie_clamped * cos(Sthetae) -
+           Romegae * FLUX * cos(Rthetae + PI / 2) - R * ix) /
           L * t_inc;
-    diy = (Samplie * sin(Sthetae) - Romegae * FLUX * sin(Rthetae + PI / 2) -
-           R * iy) /
+    diy = (Samplie_clamped * sin(Sthetae) -
+           Romegae * FLUX * sin(Rthetae + PI / 2) - R * iy) /
           L * t_inc;
     ix += dix;
     iy += diy;
@@ -302,7 +310,7 @@ int main() {
     if (iy >= 0 && gamma.iy_last < 0) {
       gvi--;  // overflow v-i difference
       gamma.phi = Sthetae + 2 * PI * gvi;
-      gamma.delta = Somegae * L * i / Samplie;
+      gamma.delta = Somegae * L * i / Samplie_clamped;
       gamma.gamma = gamma.delta - gamma.phi;
       // gamma.gamma = -sin(Rthetae + PI / 2);
       if (Romegae > ROMEGAE_TH1) {
@@ -324,46 +332,110 @@ int main() {
     }
 
     // Windmill
-    float q = gamma.phi - 75.0 / 90.0 * PI / 2;
-    bool c1 = q > 0 && Romegae > ROMEGAE_TH1;
-    bool c2 = windmill.out > 0 && q < 0;
+    float q = gamma.phi - DEGREE_TO_RADIANS(75);
+    bool c1 = 0 < q && ROMEGAE_TH1 < Romegae;
+    bool c2 = 0 < windmill.out && q < 0;
     if (c1 || c2) {
       windmill.integral += q * t_inc * windmill.KI;
-      windmill.out = windmill.integral + q * windmill.KP;
+      windmill.proportional = q * windmill.KP;
+      if (windmill.proportional < 0) {
+        windmill.proportional = 0;
+      }
+      windmill.out = windmill.integral + windmill.proportional;
+    }
+    else {
+    	windmill.out = 0;
+    	windmill.integral = 0;
     }
 
     // Stampa variabili
-    if (indexx++ % 100 == 0) {
-      fprintf(file1,
-              "%.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t "
-              "%.2f\t "
-              "%.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t %.2f\t "
-              "%.2f\t "
-              "%.2f\t %.2f\t %.2f\t %d\t \n",
-              /*01*/ t,
-              /*02*/ Samplie,
-              /*03*/ Samplie_alt,
-              /*04*/ Lalphae,
-              /*05*/ Ralphae,
-              /*06*/ Romegae,
-              /*07*/ Rthetae,
-              /*08*/ Salphae,
-              /*09*/ Somegae_tod,
-              /*10*/ (Sthetae - Rthetae + 2 * PI * gve - PI / 2),
-              /*11*/ ix,
-              /*12*/ iy,
-              /*13*/ i,
-              /*14*/ tod,
-              /*15*/ delta_lim.delta_lim,
-              /*16*/ delta_lim.delta_max,
-              /*17*/ pow_windmill,
-              /*18*/ gamma.phi,
-              /*19*/ windmill.out,
-              /*20*/ delta_lim.integral,
-              /*21*/ gamma.integral,
-              /*22*/ i_min.integral,
-              /*23*/ windmill.out,
-              /*24*/ gvi);
+    if (indexx++ % 1000 == 0) {
+      char sf[2048] = "";
+      char s1[2048] = "";
+      if (indexx == 1) {
+        fprintf(file1,
+                "t\t"
+                "Samplie\t"
+                "Samplie_alt\t"
+                "Lalphae\t"
+                "Ralphae\t"
+                "Romegae\t"
+                "Rthetae\t"
+                "Salphae\t"
+                "Somegae_tod\t"
+                "(Sthetae-Rthetae+2*PI*gve-PI/2)\t"
+                "ix\t"
+                "iy\t"
+                "i\t"
+                "tod\t"
+                "delta_lim.delta_lim\t"
+                "delta_lim.delta_max\t"
+                "pow_windmill\t"
+                "gamma.phi\t"
+                "windmill.out\t"
+                "delta_lim.integral\t"
+                "gamma.integral\t"
+                "i_min.integral\t"
+                "windmill.out\t"
+                "Romegae*FLUX\t"
+                "Somegae\t"
+                "gvi\t");
+      }
+      sprintf(s1, "%.2f\t ", /*01*/ t);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*02*/ Samplie);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*03*/ Samplie_alt);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*04*/ Lalphae);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*05*/ Ralphae);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*06*/ Romegae);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*07*/ Rthetae);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*08*/ Salphae);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*09*/ Somegae_tod);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ",
+              /*10*/ (Sthetae - Rthetae + 2 * PI * gve - PI / 2));
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*11*/ ix);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*12*/ iy);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*13*/ i);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*14*/ tod);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*15*/ delta_lim.delta_lim);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*16*/ delta_lim.delta_max);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*17*/ pow_windmill);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*18*/ gamma.phi);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*19*/ windmill.out);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*20*/ delta_lim.integral);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*21*/ gamma.integral);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*22*/ i_min.integral);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*23*/ windmill.out);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*24*/ Romegae * FLUX);
+      strcat(sf, s1);
+      sprintf(s1, "%.2f\t ", /*25*/ Somegae);
+      strcat(sf, s1);
+      sprintf(s1, "%d\t ", /*26*/ gvi);
+      strcat(sf, s1);
+      strcat(sf, "\n");
+      fprintf(file1, sf);
       // Sleep(50);
       // fflush(stdout);
     }
